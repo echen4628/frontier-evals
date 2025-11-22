@@ -32,12 +32,14 @@ from nanoeval.solvers.computer_tasks.task import ComputerTask, Grade
 from swelancer.prompts import construct_task_prompt
 from swelancer.utils.custom_logging import get_default_runs_dir, get_timestamp
 from swelancer.utils.general import PATH_TO_SWE_LANCER_TASKS
+from swelancer.benchbuster_env_setup.solution_env_setup import copy_solution_related_files, SolutionFileType
 
 logger = structlog.stdlib.get_logger(component=__name__)
 
 PUSHER_APP_KEY = "".join(random.choices(string.ascii_letters + string.digits, k=20))
 PUSHER_APP_SECRET = "".join(random.choices(string.ascii_letters + string.digits, k=20))
 PUSHER_APP_ID = "".join(random.choices(string.digits, k=7))
+SYNTH_DATA_MODE = True
 
 SWELancerSplit = Literal[
     "diamond",
@@ -78,6 +80,11 @@ def create_run_dir(
     run_dir = bf.join(runs_dir, run_group, run_id)
     bf.makedirs(run_dir)
     return run_dir
+
+# async def copy_solution_related_files(solution_dir_path, issue, computer: ComputerInterface):
+#     issue_sol_dir_path = os.join(solution_dir_path, issue)
+#     another
+#     await computer.check_shell_command(f"cp {issue_sol_dir_path} ")
 
 
 class SWELancerGrade(Grade):
@@ -150,6 +157,8 @@ class SWELancerTask(ComputerTask):
 
         # Zip the tests directory with a password
         ctx_logger.info("Zipping tests", destinations=["run"])
+        if SYNTH_DATA_MODE:
+            copy_solution_related_files("/app/tests/issues", self.issue_id, SolutionFileType.BUG_REINTRODUCE_PATCH)
         await computer.check_shell_command(
             "cd /app/tests && zip -P 'secretpasswordhere' -r /app/tmp.zip . && mv /app/tmp.zip /app/tests.zip"
         )
