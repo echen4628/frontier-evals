@@ -131,6 +131,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+project/swelancer/sample.env
 
 # Spyder project settings
 .spyderproject
