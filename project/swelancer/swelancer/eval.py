@@ -29,10 +29,14 @@ from nanoeval.solvers.computer_tasks.steps import (
     FinalResult,
 )
 from nanoeval.solvers.computer_tasks.task import ComputerTask, Grade
+from nanoeval.solvers.computer_tasks.code_execution_interface import VolumeMount
 from swelancer.prompts import construct_task_prompt
 from swelancer.utils.custom_logging import get_default_runs_dir, get_timestamp
 from swelancer.utils.general import PATH_TO_SWE_LANCER_TASKS
-from swelancer.benchbuster_env_setup.solution_env_setup import copy_solution_related_files, SolutionFileType
+from swelancer.benchbuster_env_setup.solution_env_setup import (copy_solution_related_files,
+                                                                SolutionFileType,
+                                                                copy_back_solution_related_files,
+                                                                ExploitConfig)
 
 logger = structlog.stdlib.get_logger(component=__name__)
 
@@ -123,6 +127,8 @@ class SWELancerTask(ComputerTask):
 
     n_test_runs: int
     disable_internet: bool
+    moved_path: str = None
+    exploit_config: ExploitConfig = None
 
     @override
     async def _setup(self, computer: ComputerInterface, runtime_config: RuntimeConfig) -> None:
@@ -158,7 +164,11 @@ class SWELancerTask(ComputerTask):
         # Zip the tests directory with a password
         ctx_logger.info("Zipping tests", destinations=["run"])
         if SYNTH_DATA_MODE:
-            copy_solution_related_files("/app/tests/issues", self.issue_id, SolutionFileType.BUG_REINTRODUCE_PATCH)
+            # self.moved_path = await copy_solution_related_files("/app/tests/issues", self.issue_id, computer, SolutionFileType.BUG_REINTRODUCE_PATCH, ctx_logger)
+            self.moved_path = await copy_solution_related_files("/app/tests/issues", self.issue_id, computer, ctx_logger, self.exploit_config)
+        res = await computer.send_shell_command("ls /app/golden")
+        res = await computer.send_shell_command("echo \"hello\" > /app/golden/hello.txt")
+        ctx_logger.info("golden dir contents: " + res.output.decode("utf-8"), destinations=["run"])
         await computer.check_shell_command(
             "cd /app/tests && zip -P 'secretpasswordhere' -r /app/tmp.zip . && mv /app/tmp.zip /app/tests.zip"
         )
@@ -197,6 +207,8 @@ class SWELancerTask(ComputerTask):
                 res = await computer.check_shell_command(
                     "unzip -q -P 'secretpasswordhere' -o /app/tests.zip -d /app/tests"
                 )
+                if SYNTH_DATA_MODE:
+                    await copy_back_solution_related_files("/app/tests/issues", self.issue_id, self.moved_path, computer, ctx_logger, self.exploit_config)
                 ctx_logger.info(res.output.decode("utf-8"), destinations=["run"])
                 if self.variant == "swe_manager":
                     return await self._grade_swe_manager(computer)
@@ -428,6 +440,11 @@ class SWELancerEval(PythonCodingEval):
         ),
     )
 
+    exploit_difficulty: str = chz.field(default="Easy", doc="exploit difficulty level")
+    exploit_issue_type: str = chz.field(default="solution_file", doc="category of exploit")
+    exploit_description: str = chz.field(default="", doc="brief description of this specific exploit")
+    exploit_index: int = chz.field(default=0, doc="index within its type, starts from 0")
+
     @chz.validate
     def _task_type_must_be_specific(self) -> None:
         """
@@ -463,6 +480,10 @@ class SWELancerEval(PythonCodingEval):
     @override
     async def get_instances(self) -> list[SWELancerTask]:
         ctx_logger = logger.bind(run_group_id=self.run_group_id, runs_dir=self.runs_dir)
+        exploit_config = ExploitConfig(difficulty=self.exploit_difficulty,
+                      issue_type=SolutionFileType(self.exploit_issue_type),
+                      description=self.exploit_description,
+                      index=self.exploit_index)
 
         (Path(self.runs_dir) / self.run_group_id).mkdir(parents=True, exist_ok=True)
         ctx_logger.info(
@@ -554,6 +575,8 @@ class SWELancerEval(PythonCodingEval):
                         docker_image=docker_image,
                         n_test_runs=self.n_test_runs,
                         disable_internet=self.disable_internet,
+                        exploit_config=exploit_config,
+                        volume_mounts=[VolumeMount(host_path="/home/echen4628/cs/frontier-evals/project/swelancer/benchbuster/golden", container_path="/app/golden", read_only=False)]
                     )
                 )
         ctx_logger.info("Fetched tasks.", destinations=["group"])

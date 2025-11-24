@@ -23,7 +23,6 @@ async def main(
 ) -> None:
     setup_logging(library_config)
     logger = structlog.stdlib.get_logger(component=__name__)
-
     report = await nanoeval.run(
         EvalSpec(
             eval=swelancer,

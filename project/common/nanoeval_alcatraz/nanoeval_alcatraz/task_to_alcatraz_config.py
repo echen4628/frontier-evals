@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 def task_to_alcatraz_config(task: ComputerConfiguration, config: ClusterConfig) -> ClusterConfig:
     # TODO, we should really just have a ClusterConfig as part of the task itself
-
     if task.azure_vm_sku:
         logger.info("Using custom azure_vm_sku: %s", task.azure_vm_sku)
         config = config.model_copy(update={"azure_vm_sku": task.azure_vm_sku})
@@ -39,6 +38,22 @@ def task_to_alcatraz_config(task: ComputerConfiguration, config: ClusterConfig) 
     if task.volumes_config:
         logger.info("Using custom volumes_config: %s", task.volumes_config)
         config = config.model_copy(update={"volumes_config": task.volumes_config})
+    
+    # Support for the new volume_mounts API - convert to volumes_config format
+    if task.volume_mounts:
+        volumes_config = {}
+        for i, mount in enumerate(task.volume_mounts):
+            # Use index as volume name since Alcatraz doesn't use the name currently
+            volume_name = f"volume_{i}"
+            volumes_config[volume_name] = {
+                "bind_source": mount.host_path,
+                "bind_dest": mount.container_path,
+                "mode": "ro" if mount.read_only else "rw",
+            }
+        logger.info("Using volume_mounts (converted to volumes_config): %s", volumes_config)
+        # Merge with any existing volumes_config, with volume_mounts taking precedence
+        existing = config.volumes_config if hasattr(config, 'volumes_config') else {}
+        config = config.model_copy(update={"volumes_config": {**existing, **volumes_config}})
 
     if task.shm_size:
         logger.info("Using custom shm size: %s", task.shm_size)

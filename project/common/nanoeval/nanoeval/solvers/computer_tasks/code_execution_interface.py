@@ -170,6 +170,7 @@ class VolumeMount(BaseModel):
 
     host_path: str
     container_path: str
+    read_only: bool = True  # Defaults to read-only for security
 
 
 @chz.chz
@@ -224,7 +225,7 @@ class ComputerConfiguration(BaseModel):
     limits: ContainerResources = ContainerResources()
     volume_mounts: list[VolumeMount] = Field(
         default_factory=list,
-        description="Mounts files from the host onto the container. Volume mounts are read only.",
+        description="Mounts files from the host onto the container. Volume mounts are read-only by default, but can be configured as writable.",
     )
     network_mode: NetworkMode = Field(
         default=NetworkMode.NONE,
