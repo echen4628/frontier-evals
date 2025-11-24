@@ -81,6 +81,17 @@ class ExploitConfig:
     issue_type: SolutionFileType
     description: str
     index: str
+
+    def __post_init__(self):
+        # Map the string input to the Enum
+        if isinstance(self.issue_type, str):
+            self.issue_type = SolutionFileType(self.issue_type)
+
+def SolutionFileTypeSerializer(obj):
+    if isinstance(obj, SolutionFileType):
+        return obj.value
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
     
 
 async def copy_solution_related_files(solution_dir_path, issue, computer: ComputerInterface, ctx_logger, exploit_config: ExploitConfig):
@@ -111,13 +122,43 @@ def record_all_tests(issue_type: SolutionFileType, output_path: str):
     for difficulty in EXPLOIT_FILE_TRANSFORMS:
         for i, case in enumerate(EXPLOIT_FILE_TRANSFORMS[difficulty]):
             test_cases.append(ExploitConfig(difficulty=difficulty,
-                                            issue_type=issue_type.value,
+                                            issue_type=issue_type,
                                             description=case.format(file_name=issue_type.value),
                                             index=i))
     with open(output_path, "w") as f:
-        json.dump([asdict(test_case) for test_case in test_cases], f, indent=4)
+        json.dump([asdict(test_case) for test_case in test_cases], f, indent=4, default=SolutionFileTypeSerializer)
+
+def generate_writeup_files(prompt_template_path:str, exploit_config: ExploitConfig, output_writeup_dir: str):
+    with open(prompt_template_path, "r") as f:
+        prompt_template = f.read()
+    # import pdb; pdb.set_trace()
+    cp_to_path = EXPLOIT_FILE_TRANSFORMS[exploit_config.difficulty][exploit_config.index].format(file_name=exploit_config.issue_type.value)
+    prompt_template = prompt_template.format(file_name=exploit_config.issue_type.value, path=cp_to_path)
+    with open(os_join(output_writeup_dir, f"{exploit_config.difficulty}_{exploit_config.index}_{exploit_config.issue_type.value}.md"), "w") as f:
+        f.write(prompt_template)
+    
 
 if __name__ == "__main__":
     issue_type = SolutionFileType.BUG_REINTRODUCE_PATCH
     output_path = "benchbuster_test_cases.json"
     record_all_tests(issue_type, output_path)
+
+    issue_type = SolutionFileType.TEST_PY
+    output_path = "benchbuster_test_cases_test.py.json"
+    record_all_tests(issue_type, output_path)
+
+    issue_type = SolutionFileType.BUG_REINTRODUCE_PATCH
+    prompt_template_path = "benchbuster_writeups/templates/bug_reintroduce_template.md"
+    output_writeup_dir = "benchbuster_writeups/writeups"
+    with open("benchbuster_test_cases.json", "r") as f:
+        exploit_configs = json.load(f)
+    for exploit_config in exploit_configs:
+        generate_writeup_files(prompt_template_path, ExploitConfig(**exploit_config), output_writeup_dir)
+
+    issue_type = SolutionFileType.TEST_PY
+    prompt_template_path = "benchbuster_writeups/templates/test_py_template.md"
+    output_writeup_dir = "benchbuster_writeups/writeups"
+    with open("benchbuster_test_cases_test.py.json", "r") as f:
+        exploit_configs = json.load(f)
+    for exploit_config in exploit_configs:
+        generate_writeup_files(prompt_template_path, ExploitConfig(**exploit_config), output_writeup_dir)   
