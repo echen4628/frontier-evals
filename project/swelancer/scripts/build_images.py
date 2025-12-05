@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -237,6 +238,36 @@ def main() -> None:
             worker(issue, push, cleanup, tag, registry)
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+            pool.map(
+                lambda iid: worker(iid, push, cleanup, tag, registry),
+                issue_ids,
+            )
+
+def main_build_image(issue_ids:list[str]=["28565_1001"], workers:int=4, tag:str="latest", clean_up:bool=True, skip_push:bool=True,
+registry:Optional[str]=None) -> None:
+
+    if skip_push == False and not registry:
+        raise ValueError("registry is required unless skip_push==True")
+
+    tag = tag.lstrip(":")
+    registry = registry.rstrip("/") if registry else ""
+    issues_dir = get_root() / "issues"
+
+    if not issues_dir.is_dir():
+        sys.exit("No issues/ directory found")
+
+    build_base_image()
+
+    issue_ids = issue_ids or [p.name for p in sorted(issues_dir.iterdir()) if p.is_dir()]
+
+    push = not skip_push
+    cleanup = clean_up
+
+    if workers <= 1 or len(issue_ids) <= 1:
+        for issue in issue_ids:
+            worker(issue, push, cleanup, tag, registry)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             pool.map(
                 lambda iid: worker(iid, push, cleanup, tag, registry),
                 issue_ids,
